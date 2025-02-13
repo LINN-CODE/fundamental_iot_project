@@ -1,192 +1,206 @@
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
-#include <Adafruit_Fingerprint.h>
 #include <SoftwareSerial.h>
+#include <LiquidCrystal_I2C.h>
 #include <Servo.h>
+#include <Adafruit_Fingerprint.h>
 
-// **Fingerprint Sensor Pins**
-#define RX_PIN 4 // Fingerprint TX to Arduino RX
-#define TX_PIN 5 // Fingerprint RX to Arduino TX
+// ***** Pin Definitions *****
+#define ESP_RX 2   // Arduino RX (ESP-01 TX)
+#define ESP_TX 3   // Arduino TX (ESP-01 RX)
+#define SERVO_PIN 9  // Servo control pin
+#define BUZZER_PIN 8 //Buzzer pin 
 
-// **Buzzer and Servo Pins**
-#define BUZZER_PIN 8
-#define SERVO_PIN 9
-
-// **Ultrasonic Sensor Pins**
+// *Ultrasonic Sensor Pins*
 #define TRIG_PIN 6
 #define ECHO_PIN 7
 
-// Define ESP-01 Pins
-#define ESP01_TX 3 // Arduino TX to ESP-01 RX
-#define ESP01_RX 2 // Arduino RX to ESP-01 TX
+// *Fingerprint Sensor Pins*
+#define RX_PIN 4 // Fingerprint TX to Arduino RX
+#define TX_PIN 5 // Fingerprint RX to Arduino TX
 
-<<<<<<< HEAD
-=======
-// **ThingSpeak API Details**
-String apiKey = "6VFEUBZ4RL30DZ7I";  // 🔴 Replace with your ThingSpeak Write API Key
-String server = "api.thingspeak.com";
+// ***** WiFi Credentials *****
+#define WIFI_SSID "linn"
+#define WIFI_PASSWORD "1234linn"
+#define SERVER_PORT "80"  // ESP-01 Web Server Port
 
+// ***** Initialize Components *****
+SoftwareSerial espSerial(ESP_RX, ESP_TX);  // Software Serial for ESP-01
+LiquidCrystal_I2C lcd(0x27, 16, 2);    // LCD pin setup
+Servo servo;
 
->>>>>>> LinnBhone
-// **Create SoftwareSerial object for the fingerprint sensor**
+// *Create SoftwareSerial object for the fingerprint sensor*
 SoftwareSerial mySerial(RX_PIN, TX_PIN);
 Adafruit_Fingerprint finger(&mySerial);
 
-// Create SoftwareSerial object for ESP-01
-SoftwareSerial espSerial(ESP01_RX, ESP01_TX);
+String lcdMessage = "Welcome!";
+int servoPosition = 0;
 
-// **LCD Object**
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+// ***** Function: Send AT Command to ESP-01 & Read Response *****
+String sendATCommand(String command, int delayMs) {
+    espSerial.println(command);
+    delay(delayMs);
+    
+    String response = "";
+    while (espSerial.available()) {
+        char c = espSerial.read();
+        response += c;
+    }
+    Serial.println("AT Response: " + response);
+    return response;
+}
 
-// **Servo Object**
-Servo servo;
+
+// ***** Function: Connect ESP-01 to WiFi & Get IP Address *****
+void connectToWiFi() {
+    Serial.println("Connecting to WiFi...");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Connecting WiFi...");
+  
+    sendATCommand("AT+RST", 5000);  // Reset ESP-01
+    sendATCommand("AT+CWMODE=1", 2000);  // Set to Station Mode
+
+    // Connect to WiFi
+    String connectCmd = "AT+CWJAP=\"" + String(WIFI_SSID) + "\",\"" + String(WIFI_PASSWORD) + "\"";
+    sendATCommand(connectCmd, 10000);
+    
+    delay(2000); // Wait for connection
+
+    // Get IP Address from ESP-01
+    String ipResponse = sendATCommand("AT+CIFSR", 5000);
+    
+    // Extract IP from response
+    int ipStart = ipResponse.indexOf("STAIP,\"") + 7;  // Look for "STAIP,\""
+    int ipEnd = ipResponse.indexOf("\"", ipStart);
+    String extractedIP = "";
+
+    if (ipStart != -1 && ipEnd != -1) {
+        extractedIP = ipResponse.substring(ipStart, ipEnd);
+    }
+
+    if (extractedIP.length() > 0) {
+        Serial.println("ESP-01 IP Address: " + extractedIP);
+
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("IP Address:");
+        lcd.setCursor(0, 1);
+        lcd.print(extractedIP);
+    } else {
+        Serial.println(F("Failed to get IP Address!"));
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("WiFi Error!");
+    }
+}
+
+void startWebServer() {
+    sendATCommand("AT+CIPMUX=1", 2000);  // Enable Multiple Connections
+    String response = sendATCommand("AT+CIPSERVER=1," + String(SERVER_PORT), 2000);  // Start Server
+
+    // **Check if Web Server Started Successfully**
+    if (response.indexOf("OK") != -1) {
+        Serial.println(F(" Web Server Started Successfully!"));
+    } else {
+        Serial.println(F(" Web Server Failed to Start!"));
+    }
+}
+
+
+// ***** Function: Process Incoming HTTP Requests from ESP-01 *****
+void processHttpRequest(String request) {
+    Serial.println("HTTP Request: " + request);
+
+    // **Fix: Only move servo when the servo request is received**
+    if (request.indexOf("/control_servo?position=90") != -1) {
+        servo.write(90); // Open door
+        delay(3000);
+        servo.write(0);  // Close door
+    }
+}
 
 void setup() {
-  Serial.begin(9600);
-  // Serial for ESP-01 communication
-  espSerial.begin(9600);
-  while (!Serial);
-
-  Serial.println("Initializing ESP-01...");
-  delay(2000);
-
-  // Reset ESP-01
-  sendATCommand("AT+RST", 2000);
+    Serial.begin(9600);
+    espSerial.begin(9600);  // Default ESP-01 Baud Rate
   
-  // Set ESP-01 to Station mode
-  sendATCommand("AT+CWMODE=1", 1000);
-  
-  // Connect to Wi-Fi
-  String ssid = "eee-iot";       // Replace with your Wi-Fi SSID
-  String password = "I0t@mar2025!"; // Replace with your Wi-Fi password
-  sendATCommand("AT+CWJAP=\"" + ssid + "\",\"" + password + "\"", 5000);
-  
-  // **Initialize LCD**
-  lcd.init();
-  lcd.backlight();
-  lcd.setCursor(0, 0);
-  lcd.print("Initializing...");
+    lcd.init();
+    lcd.backlight();
+    lcd.setCursor(0, 0);
+    lcd.print("Starting...");
 
-  // **Initialize Ultrasonic Sensor**
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
+    servo.attach(SERVO_PIN);
+    servo.write(servoPosition);
 
-  // **Initialize Fingerprint Sensor**
-  finger.begin(57600);
-  delay(1000);
+    // **Fix Ultrasonic Sensor Initialization**
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
 
-  // **Initialize Servo**
-  servo.attach(SERVO_PIN);
-  servo.write(0); // Locked position
+    connectToWiFi();
+    startWebServer();
 
-  // **Initialize Buzzer**
-  pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, LOW);
-
-  // **Check Fingerprint Sensor**
-  if (finger.verifyPassword()) {
-    Serial.println("Fingerprint sensor detected!");
-    lcd.clear();
-    lcd.print("Sensor Ready");
-  } else {
-    Serial.println("Fingerprint sensor NOT detected!");
-    lcd.clear();
-    lcd.print("Sensor Error!");
-    while (true) {
-      delay(100);
-    }
-  }
-
-  // **Display Template Count**
-  finger.getTemplateCount();
-  lcd.setCursor(0, 1);
-  lcd.print("Templates: ");
-  lcd.print(finger.templateCount);
-  delay(2000);
-  lcd.clear();
-  lcd.print("Waiting...");
+    mySerial.begin(57600);
+    finger.begin(57600);
+    delay(1000);
 }
+
 
 void loop() {
-  float distance = getDistance();
+    // **Process Web Requests**
+    espSerial.listen();  // Ensure ESP-01 is active
+    if (espSerial.available()) {
+        String request = "";
+        unsigned long startTime = millis();
 
-  // Print ESP-01 responses if available
-  if (espSerial.available()) {
-    String response = espSerial.readString();
-    Serial.println("ESP Response: " + response);
-  }
+        while (millis() - startTime < 2000) {
+            while (espSerial.available()) {
+                char c = espSerial.read();
+                request += c;
+            }
+            if (request.indexOf("HTTP/1.1") != -1) {
+                break;
+            }
+        }
 
-
-  if (distance > 0 && distance <= 20) { // Only activate if distance is <= 20 cm
-    lcd.backlight();
-    lcd.clear();
-    lcd.print("Object Detected!");
-    delay(1000);
-    
-    Serial.println("\nPress 'e' to enroll a new fingerprint or 'd' to detect fingerprints.");
-    lcd.clear();
-    lcd.print("e: Enroll");
-    lcd.setCursor(0, 1);
-    lcd.print("d: Detect");
-
-    while (!Serial.available());
-    char option = Serial.read();
-
-    if (option == 'e') {
-      lcd.clear();
-      lcd.print("Enroll Finger");
-      enrollFingerprint();
-    } else if (option == 'd') {
-      lcd.clear();
-      lcd.print("Detect Finger");
-      detectFingerprint();
-    } else {
-      Serial.println("Invalid option. Try again.");
-      lcd.clear();
-      lcd.print("Invalid Option");
-      delay(2000);
+        if (request.length() > 0) {
+            processHttpRequest(request);
+        }
     }
-    clearSerialBuffer(); // **Fix Invalid Option Issue**
-  } else {
-    lcd.clear();
-    lcd.noBacklight();
-  }
-<<<<<<< HEAD
-=======
+
+    delay(1000); // Allow non-blocking execution
+
+    // **Fix Ultrasonic Sensor Execution**
+    float distance = getDistance();
+    Serial.println("Distance: " + String(distance) + " cm");
+
+    if (distance > 0 && distance <= 20) {
+        lcd.backlight();
+        lcd.clear();
+        lcd.print("Object Detected!");
+        delay(1000);
+
+        lcd.setCursor(0, 1);
+        lcd.print("d: Detect");
+
+
+
+        mySerial.listen(); // Switch to fingerprint sensor **only when needed**
+        detectFingerprint();
+
+        clearSerialBuffer();
+    } else {
+        lcd.clear();
+        lcd.noBacklight();
+    }
 }
 
-// **Send Fingerprint Data to ThingSpeak**
-void sendToThingSpeak(int id, int status) {
-  String request = "GET /update?api_key=" + apiKey +
-                   "&field1=" + String(id) +
-                   "&field2=" + String(status);
 
-  sendATCommand("AT+CIPSTART=\"TCP\",\"" + server + "\",80", 2000);
-  sendATCommand("AT+CIPSEND=" + String(request.length() + 4), 2000);
-  espSerial.println(request);
-  delay(2000);
-  sendATCommand("AT+CIPCLOSE", 1000);
->>>>>>> LinnBhone
-}
-
-// Function to send AT commands to ESP-01
-void sendATCommand(String command, int delayMs) {
-  espSerial.println(command);
-  delay(delayMs);
-  while (espSerial.available()) {
-    String response = espSerial.readString();
-    Serial.println(response); // Debug response
-  }
-}
-
-// **Function to Clear Serial Buffer**
+// *Function to Clear Serial Buffer*
 void clearSerialBuffer() {
   while (Serial.available()) {
     Serial.read();
   }
 }
 
-// **Ultrasonic Sensor Function**
+// *Ultrasonic Sensor Function*
 float getDistance() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
@@ -199,7 +213,7 @@ float getDistance() {
   return distance;
 }
 
-// **Function to Detect Fingerprints**
+// *Function to Detect Fingerprints*
 void detectFingerprint() {
   lcd.clear();
   lcd.print("Waiting for Finger");
@@ -217,11 +231,7 @@ void detectFingerprint() {
       lcd.print("ID: ");
       lcd.print(id);
 
-<<<<<<< HEAD
-=======
-      sendToThingSpeak(id, 1);
->>>>>>> LinnBhone
-      // **Turn the Servo Motor**
+      // *Turn the Servo Motor*
       servo.write(90); // Open door
       delay(3000);
       servo.write(0);  // Close door
@@ -238,7 +248,7 @@ void detectFingerprint() {
   lcd.setCursor(0, 1);
   lcd.print("No Match");
 
-  // **Trigger the Buzzer**
+  // *Trigger the Buzzer*
   digitalWrite(BUZZER_PIN, HIGH);
   delay(1000);
   digitalWrite(BUZZER_PIN, LOW);
@@ -247,7 +257,7 @@ void detectFingerprint() {
   clearSerialBuffer();
 }
 
-// **Function to Capture and Identify a Fingerprint**
+// *Function to Capture and Identify a Fingerprint*
 int getFingerprintID() {
   uint8_t p = finger.getImage();
   if (p == FINGERPRINT_NOFINGER) return -1;
