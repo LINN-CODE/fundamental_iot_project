@@ -20,6 +20,11 @@
 #define ESP01_TX 3 // Arduino TX to ESP-01 RX
 #define ESP01_RX 2 // Arduino RX to ESP-01 TX
 
+// **ThingSpeak API Details**
+String apiKey = "6VFEUBZ4RL30DZ7I";  // 🔴 Replace with your ThingSpeak Write API Key
+String server = "api.thingspeak.com";
+
+
 // **Create SoftwareSerial object for the fingerprint sensor**
 SoftwareSerial mySerial(RX_PIN, TX_PIN);
 Adafruit_Fingerprint finger(&mySerial);
@@ -145,6 +150,19 @@ void loop() {
   }
 }
 
+// **Send Fingerprint Data to ThingSpeak**
+void sendToThingSpeak(int id, int status) {
+  String request = "GET /update?api_key=" + apiKey +
+                   "&field1=" + String(id) +
+                   "&field2=" + String(status);
+
+  sendATCommand("AT+CIPSTART=\"TCP\",\"" + server + "\",80", 2000);
+  sendATCommand("AT+CIPSEND=" + String(request.length() + 4), 2000);
+  espSerial.println(request);
+  delay(2000);
+  sendATCommand("AT+CIPCLOSE", 1000);
+}
+
 // Function to send AT commands to ESP-01
 void sendATCommand(String command, int delayMs) {
   espSerial.println(command);
@@ -193,6 +211,7 @@ void detectFingerprint() {
       lcd.print("ID: ");
       lcd.print(id);
 
+      sendToThingSpeak(id, 1);
       // **Turn the Servo Motor**
       servo.write(90); // Open door
       delay(3000);
