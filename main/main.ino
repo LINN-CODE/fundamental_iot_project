@@ -10,11 +10,11 @@
 #define SERVO_PIN 9  // Servo control pin
 #define BUZZER_PIN 8 //Buzzer pin 
 
-// *Ultrasonic Sensor Pins*
+// Ultrasonic Sensor Pins
 #define TRIG_PIN 6
 #define ECHO_PIN 7
 
-// *Fingerprint Sensor Pins*
+// Fingerprint Sensor Pins
 #define RX_PIN 4 // Fingerprint TX to Arduino RX
 #define TX_PIN 5 // Fingerprint RX to Arduino TX
 
@@ -28,12 +28,14 @@ SoftwareSerial espSerial(ESP_RX, ESP_TX);  // Software Serial for ESP-01
 LiquidCrystal_I2C lcd(0x27, 16, 2);    // LCD pin setup
 Servo servo;
 
-// *Create SoftwareSerial object for the fingerprint sensor*
+// Create SoftwareSerial object for the fingerprint sensor
 SoftwareSerial mySerial(RX_PIN, TX_PIN);
 Adafruit_Fingerprint finger(&mySerial);
 
 String lcdMessage = "Welcome!";
 int servoPosition = 0;
+
+
 
 // ***** Function: Send AT Command to ESP-01 & Read Response *****
 String sendATCommand(String command, int delayMs) {
@@ -98,7 +100,7 @@ void startWebServer() {
     sendATCommand("AT+CIPMUX=1", 2000);  // Enable Multiple Connections
     String response = sendATCommand("AT+CIPSERVER=1," + String(SERVER_PORT), 2000);  // Start Server
 
-    // **Check if Web Server Started Successfully**
+    // Check if Web Server Started Successfully
     if (response.indexOf("OK") != -1) {
         Serial.println(F(" Web Server Started Successfully!"));
     } else {
@@ -109,48 +111,35 @@ void startWebServer() {
 
 void processHttpRequest(String request) {
     Serial.println("HTTP Request: " + request);
-    
-    espSerial.listen(); // Ensure ESP-01 is active for reading the request
+    espSerial.listen(); // Ensure ESP-01 is active
 
     if (request.indexOf("/control_servo?position=90") != -1) {
-        mySerial.listen();  // Switch to Fingerprint Sensor
-        delay(500); // Small delay for stability
-
-        // *Turn the Servo Motor*
         servo.write(90); // Open door
         delay(3000);
         servo.write(0);  // Close door
-    } 
-    else if (request.indexOf("/finger_print?enroll=1") != -1) {
+    }
+    else if (request.indexOf("/finger_print?enroll=") != -1) {
         mySerial.listen();  // Switch to Fingerprint Sensor
-        delay(500); // Small delay for stability
+        delay(500);
+
+        // Extract ID from URL
+        int idStart = request.indexOf("=") + 1;
+        String idStr = request.substring(idStart);
+        idStr.trim();  // Remove any spaces
+
+        int enrollID = idStr.toInt();  // Convert to integer
+
+        Serial.print("Enrolling Fingerprint with ID: ");
+        Serial.println(enrollID);
 
         lcd.clear();
-        lcd.backlight();
-        lcd.print("Enroll Finger...");
-        enrollFingerprint();
+        lcd.print("Enrolling ID: ");
+        lcd.setCursor(0, 1);
+        lcd.print(enrollID);
+
+        enrollFingerprint(enrollID);  // Call function with ID
     }
 }
-
-void updateThingSpeak(String field1, String field2) {
-    espSerial.listen();  // Ensure ESP-01 is active
-    String cmd = "AT+CIPSTART=\"TCP\",\"api.thingspeak.com\",80"; // Start TCP connection
-    sendATCommand(cmd, 2000);
-
-    // Build HTTP request
-    String httpRequest = "GET /update?api_key=6VFEUBZ4RL30DZ7I&field1=" + field1 + "&field2=" + field2 + " HTTP/1.1\r\n";
-    httpRequest += "Host: api.thingspeak.com\r\n";
-    httpRequest += "Connection: close\r\n\r\n";
-
-    // Send the request
-    cmd = "AT+CIPSEND=" + String(httpRequest.length());
-    sendATCommand(cmd, 1000);
-    sendATCommand(httpRequest, 2000);
-
-    // Close the connection
-    sendATCommand("AT+CIPCLOSE", 1000);
-}
-
 
 void setup() {
     Serial.begin(9600);
@@ -164,7 +153,7 @@ void setup() {
     servo.attach(SERVO_PIN);
     servo.write(servoPosition);
 
-    // **Fix Ultrasonic Sensor Initialization**
+    // Fix Ultrasonic Sensor Initialization
     pinMode(TRIG_PIN, OUTPUT);
     pinMode(ECHO_PIN, INPUT);
 
@@ -174,14 +163,14 @@ void setup() {
     mySerial.begin(57600);
     finger.begin(57600);
     delay(1000);
-     // **Initialize Buzzer**
+     // Initialize Buzzer
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(BUZZER_PIN, LOW);
 }
 
 
 void loop() {
-    // **Process Web Requests**
+    // Process Web Requests
     espSerial.listen();  // Ensure ESP-01 is active
     if (espSerial.available()) {
         String request = "";
@@ -200,11 +189,12 @@ void loop() {
         if (request.length() > 0) {
             processHttpRequest(request);
         }
+        
     }
 
     delay(1000); // Allow non-blocking execution
 
-    // **Fix Ultrasonic Sensor Execution**
+    // Fix Ultrasonic Sensor Execution
     float distance = getDistance();
     Serial.println("Distance: " + String(distance) + " cm");
 
@@ -219,9 +209,8 @@ void loop() {
 
 
 
-        mySerial.listen(); // Switch to fingerprint sensor **only when needed**
-        detectFingerprint();
-
+        mySerial.listen(); // Switch to fingerprint sensor only when needed
+        String test = detectFingerprint();
         clearSerialBuffer();
     } else {
         lcd.clear();
@@ -229,15 +218,14 @@ void loop() {
     }
 }
 
-
-// *Function to Clear Serial Buffer*
+// Function to Clear Serial Buffer
 void clearSerialBuffer() {
   while (Serial.available()) {
     Serial.read();
   }
 }
 
-// *Ultrasonic Sensor Function*
+// Ultrasonic Sensor Function
 float getDistance() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
@@ -250,56 +238,55 @@ float getDistance() {
   return distance;
 }
 
-// **Function to Detect Fingerprints**
-// **Function to Detect Fingerprints**
-void detectFingerprint() {
-  lcd.clear();
-  lcd.print("Waiting for Finger");
-  int timeout = 5000; // Wait for 5 seconds
-  unsigned long startTime = millis();
+String detectFingerprint() {
+    lcd.clear();
+    lcd.print("Waiting for   ");
+    lcd.setCursor(0, 1);
+    lcd.print("Finger    ");
+    int timeout = 5000; // Wait for 5 seconds
+    unsigned long startTime = millis();
 
-  while (millis() - startTime < timeout) {
-    int id = getFingerprintID();
-    if (id != -1) {
-      Serial.print("Found ID: ");
-      Serial.println(id);
-      lcd.clear();
-      lcd.print("Access Granted!");
-      lcd.setCursor(0, 1);
-      lcd.print("ID: ");
-      lcd.print(id);
+    while (millis() - startTime < timeout) {
+        int id = getFingerprintID();
+        if (id != -1) {
+            Serial.print("Found ID: ");
+            Serial.println(id);
+            lcd.clear();
+            lcd.print("Access Granted!");
+            lcd.setCursor(0, 1);
+            lcd.print("ID: ");
+            lcd.print(id);
 
-      // **Turn the Servo Motor**
-      servo.write(90); // Open door
-      delay(3000);
-      servo.write(0);  // Close door
-
-      // **Update ThingSpeak (Log Access Granted)**
-      delay(3000);
-      clearSerialBuffer();
-      return;
+            // Unlock Door
+            servo.write(90);
+            delay(3000);
+            servo.write(0);
+            
+            
+            delay(2000);
+            return "granted";
+        }
     }
-  }
 
-  Serial.println("No fingerprint detected.");
-  lcd.clear();
-  lcd.print("Access Denied!");
-  lcd.setCursor(0, 1);
-  lcd.print("No Match");
+    // Unauthorized Access Detected!
+    Serial.println("No fingerprint detected.");
+    lcd.clear();
+    lcd.print("Access Denied!");
+    lcd.setCursor(0, 1);
+    lcd.print("No Match");
+    
+    // Trigger Buzzer
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(1000);
+    digitalWrite(BUZZER_PIN, LOW);
 
-  // **Trigger the Buzzer**
-  digitalWrite(BUZZER_PIN, HIGH);
-  delay(1000);
-  digitalWrite(BUZZER_PIN, LOW);
+    
 
-  // **Update ThingSpeak (Log Unauthorized Attempt)**
-
-  delay(2000);
-  clearSerialBuffer();
+    delay(2000);
+    return "denied";
 }
 
-
-// *Function to Capture and Identify a Fingerprint*
+// Function to Capture and Identify a Fingerprint
 int getFingerprintID() {
   uint8_t p = finger.getImage();
   if (p == FINGERPRINT_NOFINGER) return -1;
@@ -314,52 +301,21 @@ int getFingerprintID() {
   return -1;
 }
 
-void enrollFingerprint() {
-    mySerial.listen();  // **Ensure Fingerprint Sensor is Active**
-    delay(500);  // Small delay to stabilize serial switching
-
-    int id = 0;
-    lcd.clear();
-    lcd.print("Enter ID: ");
-    Serial.println("Enter ID (1-127) to associate with the fingerprint:");
-
-    // Clear the input buffer
-    while (Serial.available()) {
-        Serial.read();
-    }
-
-    // Wait for valid ID input
-    while (id <= 0 || id > 127) {
-        if (Serial.available()) {
-            String input = Serial.readStringUntil('\n'); // Read user input until newline
-            id = input.toInt(); // Convert the input to an integer
-
-            if (id <= 0 || id > 127) {
-                Serial.println("Invalid ID. Enter 1-127.");
-                lcd.clear();
-                lcd.print("Invalid ID");
-                delay(2000);
-                lcd.clear();
-                lcd.print("Enter ID: ");
-            }
-        }
-    }
+void enrollFingerprint(int id) {
+    mySerial.listen();  // Ensure Fingerprint Sensor is Active
+    delay(500);  
 
     lcd.clear();
-    lcd.print("ID: ");
-    lcd.print(id);
-
-    int p = -1;
-    lcd.setCursor(0, 1);
     lcd.print("Place Finger...");
 
+    int p = -1;
     while (p != FINGERPRINT_OK) {
         p = finger.getImage();
         if (p == FINGERPRINT_NOFINGER) continue;
         if (p == FINGERPRINT_IMAGEFAIL) {
-            Serial.println("Imaging error. Try again.");
+            Serial.println("Imaging Error");
             lcd.clear();
-            lcd.print("Imaging Error");
+            lcd.print("Try Again");
             return;
         }
     }
@@ -370,7 +326,7 @@ void enrollFingerprint() {
 
     p = finger.image2Tz(1);
     if (p != FINGERPRINT_OK) {
-        Serial.println("Error converting image.");
+        Serial.println("Conversion Error");
         lcd.clear();
         lcd.print("Conversion Error");
         return;
@@ -388,7 +344,7 @@ void enrollFingerprint() {
         p = finger.getImage();
         if (p == FINGERPRINT_NOFINGER) continue;
         if (p == FINGERPRINT_IMAGEFAIL) {
-            Serial.println("Imaging error. Try again.");
+            Serial.println("Imaging Error");
             lcd.clear();
             lcd.print("Imaging Error");
             return;
@@ -401,7 +357,7 @@ void enrollFingerprint() {
 
     p = finger.image2Tz(2);
     if (p != FINGERPRINT_OK) {
-        Serial.println("Error converting 2nd image.");
+        Serial.println("Conversion Error");
         lcd.clear();
         lcd.print("Conversion Error");
         return;
@@ -409,7 +365,7 @@ void enrollFingerprint() {
 
     p = finger.createModel();
     if (p != FINGERPRINT_OK) {
-        Serial.println("Error creating model.");
+        Serial.println("Model Creation Error");
         lcd.clear();
         lcd.print("Model Error");
         return;
@@ -419,17 +375,12 @@ void enrollFingerprint() {
     if (p == FINGERPRINT_OK) {
         Serial.println("Fingerprint Stored!");
         lcd.clear();
-        lcd.print("Stored!");
+        lcd.print("Stored ID: ");
+        lcd.print(id);
     } else {
-        Serial.println("Error storing fingerprint.");
+        Serial.println("Storage Error");
         lcd.clear();
-        lcd.print("Store Error");
+        lcd.print("Store Error!");
     }
     delay(2000);
-
-    // Clear the serial buffer before returning
-    while (Serial.available()) {
-        Serial.read();
-    }
 }
-
