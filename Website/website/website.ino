@@ -67,7 +67,7 @@ void connectToWiFi() {
 
   // Get IP Address from ESP-01 (optional display)
   String ipResponse = sendATCommand("AT+CIFSR", 5000);
-  int ipStart = ipResponse.indexOf("STAIP,\"") + 7; 
+  int ipStart = ipResponse.indexOf("STAIP,\"") + 7;  // Look for "STAIP,\""
   int ipEnd = ipResponse.indexOf("\"", ipStart);
   String extractedIP = "";
 
@@ -91,6 +91,7 @@ void connectToWiFi() {
 }
 
 // ***** Function: Update ThingSpeak *****
+
 void updateThingSpeak(String field1, String field2) {
   espSerial.listen();  // Ensure ESP-01 is active
   String cmd = "AT+CIPSTART=\"TCP\",\"api.thingspeak.com\",80"; // Start TCP connection
@@ -153,6 +154,10 @@ void detectFingerprint() {
       servo.write(90); // Open door
       delay(3000);
       servo.write(0);  // Close door
+
+      // (Optional) Log authorized access to ThingSpeak:
+      // updateThingSpeak("Authorized", "ID:" + String(id));
+
       clearSerialBuffer();
       return;
     }
@@ -164,6 +169,14 @@ void detectFingerprint() {
   lcd.print("Access Denied!");
   lcd.setCursor(0, 1);
   lcd.print("No Match");
+
+  // ===== Buzzer lines are commented out so it won't make noise =====
+  // digitalWrite(BUZZER_PIN, HIGH);
+  // delay(1000);
+  // digitalWrite(BUZZER_PIN, LOW);
+
+  // Update ThingSpeak to log unauthorized access
+  // (This can trigger an email via IFTTT or ThingSpeak React)
   updateThingSpeak("Unauthorized", "Wrong Fingerprint Access");
 
   delay(2000);
@@ -185,7 +198,7 @@ int getFingerprintID() {
   return -1;
 }
 
-
+// (Optional) Enroll Fingerprint Function
 void enrollFingerprint() {
   mySerial.listen();  // Ensure Fingerprint Sensor is Active
   delay(500);         // Small delay to stabilize serial switching
@@ -347,7 +360,8 @@ void loop() {
     lcd.print("d: Detect");
 
     mySerial.listen(); // Switch to fingerprint sensor when needed
-    enrollFingerprint();
+    detectFingerprint();
+
     clearSerialBuffer();
   } else {
     lcd.clear();
